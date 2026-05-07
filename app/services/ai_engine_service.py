@@ -1,14 +1,10 @@
 import json
 from typing import Optional
 
-from anthropic import AsyncAnthropic
-
 from app.config import get_settings
 from app.models.call_session import CallSession
 
 settings = get_settings()
-
-_client: Optional[AsyncAnthropic] = None
 
 SYSTEM_PROMPT = """You are the voice assistant for {bank_name}. The caller is {user_name} — fully authenticated.
 
@@ -59,22 +55,16 @@ Rules:
 - Extract numeric amounts from phrases like "two hundred dollars" → 200
 - Never use markdown in response_text"""
 
+_FALLBACK = {
+    "intent": "unknown",
+    "response_text": "I'm sorry, I didn't quite catch that. Could you rephrase what you need?",
+    "escalate": False,
+    "escalate_reason": None,
+    "params": {},
+}
 
-def _get_client() -> AsyncAnthropic:
-    global _client
-    if _client is None:
-        _client = AsyncAnthropic(api_key=settings.ai_engine_api_key)
-    return _client
 
-
-async def classify_intent(
-    transcript: str,
-    session: CallSession,
-    balance: float = 0.0,
-    currency: str = "USD",
-    transactions: Optional[list[dict]] = None,
-) -> dict:
-    transactions = transactions or []
+def _build_prompt(transcript: str, session: CallSession, balance: float, currency: str, transactions: list) -> tuple[str, str]:
     tx_lines = "\n".join(
         f"- {t['date']}: {t['description']}, "
         f"{'debit' if t['amount'] < 0 else 'credit'} {abs(t['amount']):.2f}"
@@ -89,25 +79,61 @@ async def classify_intent(
         currency=currency,
         transactions=tx_lines,
     )
+    return system, transcript
 
-    client = _get_client()
+
+def _parse(raw: str) -> dict:
+    try:
+        data = json.loads(raw)
+        if "params" not in data:
+            data["params"] = {}
+        return data
+    except (json.JSONDecodeError, KeyError):
+        return _FALLBACK
+
+
+async def _call_groq(system: str, user: str) -> dict:
+    from groq import AsyncGroq
+    client = AsyncGroq(api_key=settings.groq_api_key)
+    response = await client.chat.completions.create(
+        model=settings.groq_model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        max_tokens=512,
+        temperature=0.1,
+    )
+    return _parse(response.choices[0].message.content)
+
+
+async def _call_anthropic(system: str, user: str) -> dict:
+    from anthropic import AsyncAnthropic
+    client = AsyncAnthropic(api_key=settings.ai_engine_api_key)
     response = await client.messages.create(
         model=settings.ai_model,
         max_tokens=512,
         system=system,
-        messages=[{"role": "user", "content": transcript}],
+        messages=[{"role": "user", "content": user}],
     )
+    return _parse(response.content[0].text)
+
+
+async def classify_intent(
+    transcript: str,
+    session: CallSession,
+    balance: float = 0.0,
+    currency: str = "USD",
+    transactions: Optional[list[dict]] = None,
+) -> dict:
+    system, user = _build_prompt(transcript, session, balance, currency, transactions or [])
 
     try:
-        data = json.loads(response.content[0].text)
-        if "params" not in data:
-            data["params"] = {}
-        return data
-    except (json.JSONDecodeError, IndexError, KeyError):
-        return {
-            "intent": "unknown",
-            "response_text": "I'm sorry, I didn't quite catch that. Could you rephrase what you need?",
-            "escalate": False,
-            "escalate_reason": None,
-            "params": {},
-        }
+        if settings.groq_api_key:
+            return await _call_groq(system, user)
+        if settings.ai_engine_api_key:
+            return await _call_anthropic(system, user)
+    except Exception:
+        pass
+
+    return _FALLBACK

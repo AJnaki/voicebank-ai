@@ -1,8 +1,15 @@
-from twilio.twiml.voice_response import VoiceResponse, Gather, Play
+from twilio.twiml.voice_response import VoiceResponse, Gather
+
+
+def _play_or_say(container, url: str) -> None:
+    """Use <Play> for real audio URLs, <Say> for 'say:' prefixed fallback."""
+    if url.startswith("say:"):
+        container.say(url[4:], voice="alice")
+    else:
+        container.play(url)
 
 
 def incoming_call_twiml(greeting_url: str, gather_action: str) -> str:
-    """Plays greeting audio and gathers the caller's spoken name."""
     response = VoiceResponse()
     gather = Gather(
         input="speech",
@@ -11,14 +18,13 @@ def incoming_call_twiml(greeting_url: str, gather_action: str) -> str:
         timeout=10,
         language="en-US",
     )
-    gather.play(greeting_url)
+    _play_or_say(gather, greeting_url)
     response.append(gather)
     response.redirect(gather_action + "?timeout=1")
     return str(response)
 
 
 def ask_pin_twiml(prompt_url: str, gather_action: str, num_digits: int = 6) -> str:
-    """Plays prompt audio and gathers DTMF PIN digits."""
     response = VoiceResponse()
     gather = Gather(
         input="dtmf",
@@ -27,13 +33,12 @@ def ask_pin_twiml(prompt_url: str, gather_action: str, num_digits: int = 6) -> s
         timeout=15,
         finish_on_key="",
     )
-    gather.play(prompt_url)
+    _play_or_say(gather, prompt_url)
     response.append(gather)
     return str(response)
 
 
 def ask_intent_twiml(prompt_url: str, gather_action: str) -> str:
-    """Plays a prompt and gathers the caller's spoken intent."""
     response = VoiceResponse()
     gather = Gather(
         input="speech",
@@ -42,29 +47,26 @@ def ask_intent_twiml(prompt_url: str, gather_action: str) -> str:
         timeout=8,
         language="en-US",
     )
-    gather.play(prompt_url)
+    _play_or_say(gather, prompt_url)
     response.append(gather)
     response.redirect(gather_action + "?timeout=1")
     return str(response)
 
 
 def play_and_gather_twiml(audio_url: str, gather_action: str) -> str:
-    """General: play a response then immediately listen for the next utterance."""
     return ask_intent_twiml(audio_url, gather_action)
 
 
 def transfer_to_agent_twiml(audio_url: str, agent_number: str) -> str:
-    """Plays hold message then dials the agent number."""
     response = VoiceResponse()
-    response.play(audio_url)
+    _play_or_say(response, audio_url)
     response.dial(agent_number)
     return str(response)
 
 
 def say_and_hang_up_twiml(audio_url: str) -> str:
-    """Plays farewell audio then ends the call."""
     response = VoiceResponse()
-    response.play(audio_url)
+    _play_or_say(response, audio_url)
     response.hangup()
     return str(response)
 

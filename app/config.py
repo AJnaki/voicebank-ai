@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     ai_engine_api_key: str = ""
     ai_model: str = "claude-sonnet-4-6"
 
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+
     azure_speech_key: str = ""
     azure_speech_region: str = "eastus"
 
