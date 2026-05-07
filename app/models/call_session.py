@@ -53,6 +53,10 @@ class CallSession(BaseModel):
     # Phase 2: tracks actions awaiting OTP or voice confirmation
     pending_action: Optional[str] = None
     pending_data: dict = Field(default_factory=dict)
+    # Phase 3: intelligence & scale
+    sentiment_log: list[str] = []
+    language: str = "en"
+    escalated: bool = False
 
     def add_turn(self, role: str, text: str) -> None:
         self.transcript.append(TranscriptTurn(role=role, text=text))
@@ -67,3 +71,16 @@ class CallSession(BaseModel):
     def clear_pending(self) -> None:
         self.pending_action = None
         self.pending_data = {}
+
+    def log_sentiment(self, sentiment: str) -> None:
+        self.sentiment_log.append(sentiment)
+
+    def consecutive_negative_sentiment(self) -> int:
+        """Count trailing consecutive frustrated/angry turns."""
+        count = 0
+        for s in reversed(self.sentiment_log):
+            if s in ("frustrated", "angry"):
+                count += 1
+            else:
+                break
+        return count

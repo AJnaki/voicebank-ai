@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
 from app.models.base import Base
 
 
@@ -19,3 +19,9 @@ class CallLog(Base):
     transcript = Column(JSON, default=list, nullable=False)
     intent_log = Column(JSON, default=list, nullable=False)
     biometric_score = Column(Integer, nullable=True)
+    # Phase 3 columns
+    sentiment_log = Column(JSON, default=list, nullable=True)
+    language = Column(String(10), default="en", nullable=True)
+    recording_url = Column(String(500), nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    escalated = Column(Boolean, default=False, nullable=True)

@@ -11,6 +11,7 @@ from app.models.call_session import CallSession
 from app.services.ai_engine_service import classify_intent
 from app.services.bank_api import bank_api
 from app.services.sms_service import send_mini_statement
+from app.services.sentiment_service import detect_sentiment, should_offer_agent, ESCALATION_OFFER
 
 
 async def route_intent(
@@ -38,9 +39,17 @@ async def route_intent(
     escalate = result.get("escalate", False)
     params = result.get("params", {})
 
+    # Sentiment detection on every turn
+    sentiment = detect_sentiment(transcript)
+    session.log_sentiment(sentiment)
     session.log_intent(intent)
     session.add_turn("caller", transcript)
     await save_session(session)
+
+    # Proactively offer agent if caller is repeatedly negative
+    failed_unknowns = session.intent_log.count("unknown")
+    if should_offer_agent(session.sentiment_log, failed_unknowns):
+        return ESCALATION_OFFER, False, False
 
     if escalate or intent == "live_agent":
         return result.get("response_text", "Connecting you to a team member now."), True, False

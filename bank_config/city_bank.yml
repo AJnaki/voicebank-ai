@@ -1,0 +1,25 @@
+bank_id: city_bank
+display_name: "City Bank"
+phone_number: "+18005559876"
+voice_id: "EXAVITQu4vr4xnSDxMaL"
+greeting: "Thank you for calling City Bank. Your trusted financial partner."
+language_default: "en"
+languages_enabled:
+  - en
+  - fr
+pin_length: 4
+biometric_threshold: 75
+agent_transfer_number: "+18005558765"
+voice_ids:
+  en: "EXAVITQu4vr4xnSDxMaL"
+  fr: "VR6AewLTigWG4xSOukaG"
+features:
+  fund_transfer: true
+  bill_payment: true
+  loan_enquiry: true
+  card_block: true
+  outbound_calls: false
+  sentiment_escalation: true
+  multi_language: true
+  post_call_sms: true
+  compliance_recording: false

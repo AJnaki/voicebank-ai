@@ -1,0 +1,25 @@
+bank_id: first_national
+display_name: "First National Bank"
+phone_number: "+18005551234"
+voice_id: "21m00Tcm4TlvDq8ikWAM"
+greeting: "Welcome to First National Bank. I'm your virtual assistant."
+language_default: "en"
+languages_enabled:
+  - en
+  - es
+pin_length: 6
+biometric_threshold: 70
+agent_transfer_number: "+18005554321"
+voice_ids:
+  en: "21m00Tcm4TlvDq8ikWAM"
+  es: "pNInz6obpgDQGcFmaJgB"
+features:
+  fund_transfer: true
+  bill_payment: true
+  loan_enquiry: true
+  card_block: true
+  outbound_calls: true
+  sentiment_escalation: true
+  multi_language: true
+  post_call_sms: true
+  compliance_recording: true

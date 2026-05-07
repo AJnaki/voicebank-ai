@@ -17,7 +17,9 @@ from app.handlers.intent_handler import route_intent
 from app.handlers.transfer_handler import complete_transfer
 from app.models.call_log import CallLog
 from app.models.call_session import CallSession
+from app.models.bank_config import get_bank_config
 from app.services import azure_speaker
+from app.services.language_service import detect_language_from_speech
 from app.services.elevenlabs_service import tts_url
 from app.services.otp_service import verify_otp
 from app.services.twilio_service import (
@@ -316,6 +318,7 @@ async def voice_confirm(
 async def call_status(
     CallSid: Annotated[str, Form()],
     CallStatus: Annotated[str, Form()],
+    CallDuration: Annotated[Optional[str], Form()] = None,
     db: AsyncSession = Depends(get_db),
 ):
     if CallStatus not in ("completed", "busy", "failed", "no-answer", "canceled"):
@@ -328,7 +331,8 @@ async def call_status(
     log = result.scalar_one_or_none()
 
     if log and session:
-        log.ended_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        log.ended_at = now
         log.user_id = session.user_id
         log.auth_result = {
             "name_verified": session.auth.name_verified,
@@ -339,8 +343,47 @@ async def call_status(
         log.transcript = [t.model_dump() for t in session.transcript]
         log.intent_log = session.intent_log
         log.biometric_score = session.auth.biometric_score
+        log.sentiment_log = session.sentiment_log
+        log.language = session.language
+        log.escalated = session.escalated
+        log.duration_seconds = int(CallDuration) if CallDuration else None
         db.add(log)
         await db.commit()
 
+        # Post-call SMS summary (fire and forget)
+        bank_config = get_bank_config()
+        if bank_config.features.post_call_sms and session.user_id:
+            from app.models.user import User
+            user = await db.get(User, session.user_id)
+            if user and user.phone_number and session.intent_log:
+                asyncio.create_task(_send_summary(session, user.phone_number))
+
     await delete_session(CallSid)
+    return Response(status_code=204)
+
+
+async def _send_summary(session, phone: str) -> None:
+    from app.services.summary_service import send_post_call_sms
+    await send_post_call_sms(session, phone)
+
+
+# ── 8. Recording webhook ──────────────────────────────────────────────────────
+
+@router.post("/recording")
+async def recording_callback(
+    CallSid: Annotated[str, Form()],
+    RecordingUrl: Annotated[Optional[str], Form()] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    if not RecordingUrl:
+        return Response(status_code=204)
+
+    from sqlalchemy import select
+    result = await db.execute(select(CallLog).where(CallLog.call_sid == CallSid))
+    log = result.scalar_one_or_none()
+    if log:
+        log.recording_url = RecordingUrl
+        db.add(log)
+        await db.commit()
+
     return Response(status_code=204)
