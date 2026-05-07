@@ -1,0 +1,86 @@
+site_name: VoiceBank AI
+site_description: Intelligent AI Voice Assistant Platform for Banking
+site_author: VoiceBank AI Team
+site_url: https://voicebank-ai.docs.io
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Architecture:
+    - System Overview: architecture/overview.md
+    - Call Flow: architecture/call-flow.md
+    - Tech Stack: architecture/tech-stack.md
+  - Authentication:
+    - Auth Flow: auth/flow.md
+    - Voice Biometrics: auth/voice-biometrics.md
+    - PIN & Identity: auth/pin-identity.md
+  - Project Phases:
+    - Phase 1 - Foundation: phases/phase1.md
+    - Phase 2 - Core Banking: phases/phase2.md
+    - Phase 3 - Intelligence & Scale: phases/phase3.md
+  - API Integration:
+    - Bank API: api/bank-api.md
+    - Webhooks: api/webhooks.md
+  - Deployment:
+    - Setup Guide: deployment/setup.md
+    - Environment Variables: deployment/env-vars.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - glightbox
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/voicebank-ai
+  version:
+    provider: mike
