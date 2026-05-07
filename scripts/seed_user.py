@@ -1,6 +1,6 @@
 """
 Seed a test user into the database.
-Usage: python scripts/seed_user.py
+Usage: python3 scripts/seed_user.py
 """
 import asyncio
 import bcrypt
@@ -24,13 +24,14 @@ async def seed():
             first_name="John",
             last_name="Smith",
             phone_number="+15550001234",
+            email="john.smith@email.com",
             pin_hash=pin_hash,
             account_number="****4821",
         )
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        print(f"Created user: {user.full_name} (id={user.id}), PIN: {pin}")
+        print(f"Created user: {user.full_name} (id={user.id}), PIN: {pin}, email: {user.email}")
 
 
 if __name__ == "__main__":

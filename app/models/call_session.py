@@ -50,9 +50,20 @@ class CallSession(BaseModel):
     started_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # Phase 2: tracks actions awaiting OTP or voice confirmation
+    pending_action: Optional[str] = None
+    pending_data: dict = Field(default_factory=dict)
 
     def add_turn(self, role: str, text: str) -> None:
         self.transcript.append(TranscriptTurn(role=role, text=text))
 
     def log_intent(self, intent: str) -> None:
         self.intent_log.append(intent)
+
+    def set_pending(self, action: str, **data) -> None:
+        self.pending_action = action
+        self.pending_data = data
+
+    def clear_pending(self) -> None:
+        self.pending_action = None
+        self.pending_data = {}

@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     agent_transfer_number: str = "+10000000000"
     audio_ttl_seconds: int = 300
 
+    sendgrid_api_key: str = ""
+    email_from: str = "noreply@voicebank.ai"
+
+    otp_ttl_seconds: int = 300
+    fund_transfer_otp_threshold: float = 500.0
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"

@@ -10,9 +10,9 @@ async def get_transactions_response(session: CallSession, limit: int = 3) -> str
 
     parts = []
     for t in txs:
-        action = "debit of" if t["amount"] < 0 else "credit of"
-        amount = abs(t["amount"])
-        parts.append(f"{t['description']}, {action} {amount:.2f} dollars, on {t['date']}")
+        action = "debit of" if t.amount < 0 else "credit of"
+        amount = abs(t.amount)
+        parts.append(f"{t.description}, {action} {amount:.2f} dollars, on {t.date}")
 
     listing = "; ".join(parts)
     return (

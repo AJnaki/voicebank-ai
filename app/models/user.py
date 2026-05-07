@@ -10,6 +10,7 @@ class User(Base):
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     phone_number = Column(String(20), nullable=True)
+    email = Column(String(255), nullable=True)
     pin_hash = Column(String(60), nullable=False)
     account_number = Column(String(20), nullable=False)
     voice_profile_id = Column(String(100), nullable=True)

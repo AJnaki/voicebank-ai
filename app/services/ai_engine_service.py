@@ -18,25 +18,46 @@ Available balance: {balance} {currency}
 Recent transactions:
 {transactions}
 
-Classify the caller's intent and generate a short spoken response.
+Classify the caller's intent, extract relevant parameters, and generate a short spoken response.
 
 Return ONLY valid JSON — no markdown, no code fences:
 {{
-  "intent": "<balance|transactions|statement|bill_payment|card_block|loan_status|fund_transfer|fraud_report|live_agent|unknown>",
+  "intent": "<see intents below>",
   "response_text": "<1-2 sentences, spoken aloud, numbers in words>",
   "escalate": <true|false>,
-  "escalate_reason": "<reason or null>"
+  "escalate_reason": "<reason or null>",
+  "params": {{
+    "amount": <number or null>,
+    "destination": "<account name or null>",
+    "biller": "<biller name or null>",
+    "cheque_number": "<string or null>",
+    "description": "<dispute description or null>"
+  }}
 }}
 
+Available intents:
+- balance           → check account balance
+- transactions      → list recent transactions
+- statement         → email PDF statement
+- mini_statement    → send last 5 transactions via SMS
+- bill_payment      → pay a bill (extract biller and amount from params)
+- card_block        → freeze/block card
+- card_unblock      → unblock/unfreeze card
+- card_dispute      → report unauthorized transaction
+- loan_status       → check loan balance, EMI, due date
+- fund_transfer     → transfer funds (extract destination and amount from params)
+- fd_enquiry        → fixed deposit balance and maturity info
+- cheque_status     → cheque clearance status (extract cheque_number from params)
+- live_agent        → caller wants a human agent
+- unknown           → cannot classify
+
 Rules:
-- response_text will be spoken — keep it SHORT and conversational
-- Numbers in words: "twelve thousand four hundred dollars" not "$12,400"
-- balance intent: state the available balance
-- transactions intent: name the last 3 transactions briefly
-- unknown intent: politely ask to rephrase
-- live_agent: set escalate=true
-- card_block: confirm the action and instruct caller to say yes/no
-- Do not use markdown, bullet points, or special characters in response_text"""
+- response_text is spoken aloud — keep it SHORT and conversational
+- Numbers in words: "twelve hundred dollars" not "$1,200"
+- For unknown: politely ask to rephrase
+- Set escalate=true for live_agent or if caller sounds very distressed
+- Extract numeric amounts from phrases like "two hundred dollars" → 200
+- Never use markdown in response_text"""
 
 
 def _get_client() -> AsyncAnthropic:
@@ -78,11 +99,15 @@ async def classify_intent(
     )
 
     try:
-        return json.loads(response.content[0].text)
+        data = json.loads(response.content[0].text)
+        if "params" not in data:
+            data["params"] = {}
+        return data
     except (json.JSONDecodeError, IndexError, KeyError):
         return {
             "intent": "unknown",
             "response_text": "I'm sorry, I didn't quite catch that. Could you rephrase what you need?",
             "escalate": False,
             "escalate_reason": None,
+            "params": {},
         }

@@ -11,11 +11,15 @@ from app.db.database import get_db
 from app.db.redis_client import delete_session, load_session, save_session
 from app.handlers.agent_handler import prepare_agent_handoff
 from app.handlers.auth_handler import handle_name, handle_pin, record_biometric_score
+from app.handlers.bill_handler import complete_bill_payment
+from app.handlers.card_handler import handle_card_unblock_confirm
 from app.handlers.intent_handler import route_intent
+from app.handlers.transfer_handler import complete_transfer
 from app.models.call_log import CallLog
 from app.models.call_session import CallSession
 from app.services import azure_speaker
 from app.services.elevenlabs_service import tts_url
+from app.services.otp_service import verify_otp
 from app.services.twilio_service import (
     ask_intent_twiml,
     ask_pin_twiml,
@@ -58,7 +62,10 @@ async def incoming_call(
     db.add(log)
     await db.commit()
 
-    greeting = f"Welcome to {settings.bank_name}. I'm your virtual assistant. To get started, please say your first and last name."
+    greeting = (
+        f"Welcome to {settings.bank_name}. I'm your virtual assistant. "
+        f"To get started, please say your first and last name."
+    )
     audio = await tts_url(greeting)
     action = f"{settings.public_base_url}/webhook/call/auth/name"
     return _xml(incoming_call_twiml(audio, action))
@@ -90,7 +97,6 @@ async def auth_name(
         return _xml(incoming_call_twiml(audio, action))
 
     if outcome == "found_medium":
-        first = session.user_name.split()[0]
         last_four = session.account_number[-4:]
         prompt = (
             f"I found {session.user_name} with an account ending in {last_four}. "
@@ -100,9 +106,9 @@ async def auth_name(
         action = f"{settings.public_base_url}/webhook/call/auth/confirm-name?call_sid={CallSid}"
         return _xml(incoming_call_twiml(audio, action))
 
-    # found_high — go straight to PIN
     audio = await tts_url(
-        f"Thank you, {session.user_name.split()[0]}. Please enter your six-digit PIN using your keypad."
+        f"Thank you, {session.user_name.split()[0]}. "
+        f"Please enter your six-digit PIN using your keypad."
     )
     action = f"{settings.public_base_url}/webhook/call/auth/pin"
     return _xml(ask_pin_twiml(audio, action, num_digits=6))
@@ -122,9 +128,7 @@ async def confirm_name(
         action = f"{settings.public_base_url}/webhook/call/auth/name"
         return _xml(incoming_call_twiml(audio, action))
 
-    audio = await tts_url(
-        f"Great. Please enter your six-digit PIN using your keypad."
-    )
+    audio = await tts_url("Great. Please enter your six-digit PIN using your keypad.")
     action = f"{settings.public_base_url}/webhook/call/auth/pin"
     return _xml(ask_pin_twiml(audio, action, num_digits=6))
 
@@ -160,20 +164,20 @@ async def auth_pin(
     if outcome == "wrong":
         remaining = 3 - session.auth.pin_attempts
         audio = await tts_url(
-            f"Incorrect PIN. You have {remaining} {'attempt' if remaining == 1 else 'attempts'} remaining. "
-            f"Please try again."
+            f"Incorrect PIN. You have {remaining} "
+            f"{'attempt' if remaining == 1 else 'attempts'} remaining. Please try again."
         )
         action = f"{settings.public_base_url}/webhook/call/auth/pin"
         return _xml(ask_pin_twiml(audio, action))
 
-    # PIN verified — trigger biometric check in background
     asyncio.create_task(_run_biometric_async(session))
 
     first_name = session.user_name.split()[0]
     welcome = (
         f"Welcome back, {first_name}! How can I help you today? "
         f"You can ask about your balance, recent transactions, statements, "
-        f"bill payments, or anything else. Or say 'talk to someone' to reach an agent."
+        f"bill payments, card management, loan status, or anything else. "
+        f"Or say 'talk to someone' to reach an agent."
     )
     audio = await tts_url(welcome)
     action = f"{settings.public_base_url}/webhook/call/intent"
@@ -181,7 +185,6 @@ async def auth_pin(
 
 
 async def _run_biometric_async(session: CallSession) -> None:
-    """Background task: runs voice biometric check using the Twilio recording."""
     from app.models.user import User
     from app.db.database import AsyncSessionLocal
 
@@ -200,6 +203,7 @@ async def handle_intent(
     request: Request,
     CallSid: Annotated[str, Form()],
     SpeechResult: Annotated[Optional[str], Form()] = None,
+    db: AsyncSession = Depends(get_db),
 ):
     session = await load_session(CallSid)
     if session is None or not session.auth.fully_authenticated:
@@ -214,20 +218,99 @@ async def handle_intent(
         action = f"{settings.public_base_url}/webhook/call/intent"
         return _xml(ask_intent_twiml(audio, action))
 
-    response_text, should_escalate = await route_intent(transcript, session)
+    response_text, should_escalate, requires_otp = await route_intent(transcript, session, db)
 
     if should_escalate:
-        summary = await prepare_agent_handoff(session, reason="caller_request")
+        await prepare_agent_handoff(session, reason="caller_request")
         transfer_msg = f"{response_text} Please hold while I connect you."
         audio = await tts_url(transfer_msg)
         return _xml(transfer_to_agent_twiml(audio, settings.agent_transfer_number))
+
+    if requires_otp:
+        audio = await tts_url(response_text)
+        action = f"{settings.public_base_url}/webhook/call/otp"
+        return _xml(ask_pin_twiml(audio, action, num_digits=6))
 
     audio = await tts_url(response_text)
     action = f"{settings.public_base_url}/webhook/call/intent"
     return _xml(play_and_gather_twiml(audio, action))
 
 
-# ── 5. Call status (end of call) ─────────────────────────────────────────────
+# ── 5. OTP verification ───────────────────────────────────────────────────────
+
+@router.post("/otp")
+async def verify_otp_endpoint(
+    CallSid: Annotated[str, Form()],
+    Digits: Annotated[Optional[str], Form()] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await load_session(CallSid)
+    if session is None or not session.pending_action:
+        return _xml(error_twiml("Session error. Please call back."))
+
+    digits = (Digits or "").strip()
+    valid = await verify_otp(CallSid, digits)
+
+    if not valid:
+        audio = await tts_url(
+            "That code didn't match. Please try again, "
+            "or say 'cancel' to go back to the main menu."
+        )
+        action = f"{settings.public_base_url}/webhook/call/otp"
+        return _xml(ask_pin_twiml(audio, action, num_digits=6))
+
+    pending = session.pending_action
+    if pending == "fund_transfer":
+        response_text = await complete_transfer(session)
+    elif pending == "bill_payment":
+        response_text = await complete_bill_payment(session)
+    else:
+        response_text = "Action completed successfully. Anything else I can help with?"
+        session.clear_pending()
+        await save_session(session)
+
+    audio = await tts_url(response_text)
+    action = f"{settings.public_base_url}/webhook/call/intent"
+    return _xml(play_and_gather_twiml(audio, action))
+
+
+# ── 6. Voice confirmation (yes/no) ────────────────────────────────────────────
+
+@router.post("/confirm")
+async def voice_confirm(
+    CallSid: Annotated[str, Form()],
+    SpeechResult: Annotated[Optional[str], Form()] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await load_session(CallSid)
+    if session is None or not session.pending_action:
+        return _xml(error_twiml("Session error. Please call back."))
+
+    answer = (SpeechResult or "").strip().lower()
+    confirmed = "yes" in answer or "yeah" in answer or "correct" in answer
+
+    pending = session.pending_action
+
+    if not confirmed:
+        session.clear_pending()
+        await save_session(session)
+        audio = await tts_url("No problem, I've cancelled that. Is there anything else I can help you with?")
+        action = f"{settings.public_base_url}/webhook/call/intent"
+        return _xml(play_and_gather_twiml(audio, action))
+
+    if pending == "card_unblock":
+        response_text = await handle_card_unblock_confirm(session)
+    else:
+        response_text = "Done. Is there anything else I can help you with?"
+        session.clear_pending()
+        await save_session(session)
+
+    audio = await tts_url(response_text)
+    action = f"{settings.public_base_url}/webhook/call/intent"
+    return _xml(play_and_gather_twiml(audio, action))
+
+
+# ── 7. Call status (end of call) ─────────────────────────────────────────────
 
 @router.post("/status")
 async def call_status(
@@ -241,9 +324,7 @@ async def call_status(
     session = await load_session(CallSid)
 
     from sqlalchemy import select
-    result = await db.execute(
-        select(CallLog).where(CallLog.call_sid == CallSid)
-    )
+    result = await db.execute(select(CallLog).where(CallLog.call_sid == CallSid))
     log = result.scalar_one_or_none()
 
     if log and session:
